@@ -1,11 +1,15 @@
 import montecarlosimulator as mcs
+from montecarlosimulator import SimulationFailureError
+from montecarlosimulator.test import test_classes
+from montecarlosimulator.dispersions import SimulationDataclass
 
 from scipy.integrate import solve_ivp
 
 import pandas as pd
 import numpy as np
 
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass
+
 from typing import Iterable, Union
 import pytest
 import re
@@ -130,63 +134,93 @@ class TestDispersions:
             assert dispersed_kwargs['iterator_dispersions'][1] == 42
 
     def test_arugments_dataclass_dispersions(self):
-        with pytest.raises(mcs.SimulationFailureError):
-            @mcs.simulation_dataclass
+        # Test inheritance and instantiation does not raise exceptions
+        class SimulationData(SimulationDataclass):
+            parameter1: np.array
+            parameter2: Union[float, mcs.DispersionType]
+            parameter3: object
+            parameter4: str = ''
+
+        SimulationData(parameter1=np.zeros((3, 1)), parameter2=3, parameter3=None, parameter4='p4')
+        assert is_dataclass(SimulationData)
+        assert not SimulationData.__dataclass_params__.frozen
+        assert SimulationData.__dataclass_params__.eq
+
+        # Test addition of @dataclass decorator has no effect
+        @dataclass
+        class SimulationData(SimulationDataclass):
+            parameter1: np.array
+            parameter2: Union[float, mcs.DispersionType]
+            parameter3: object
+
+        # Test multiple instantiations
+        s_data = SimulationData(parameter1=np.zeros((3, 1)), parameter2=3, parameter3=None)
+        assert is_dataclass(SimulationData)
+        assert not SimulationData.__dataclass_params__.frozen
+        assert SimulationData.__dataclass_params__.eq
+        assert all(s_data.parameter1 == np.zeros((3, 1)))
+        assert s_data.parameter2 == 3
+        assert s_data.parameter3 is None
+        s_data1 = SimulationData(parameter1=np.ones((4, 1)), parameter2=4, parameter3=None)
+        assert all(s_data1.parameter1 == np.ones((4, 1)))
+        assert s_data1.parameter2 == 4
+        assert s_data1.parameter3 is None
+        assert all(s_data.parameter1 == np.zeros((3, 1)))
+        assert s_data.parameter2 == 3
+        assert s_data.parameter3 is None
+
+        msg = r'SimulationData cannot contain members named "nominal", "kind" or "target_class"'
+        with pytest.raises(SimulationFailureError, match=msg):
             @dataclass
-            class SimulationData:
+            class SimulationData(SimulationDataclass):
                 parameter1: np.array
                 parameter2: Union[float, mcs.DispersionType]
                 parameter3: object
+                nominal: float
 
-        @mcs.simulation_dataclass
-        @dataclass(frozen=True, eq=False)
-        class SimulationData:
-            parameter1: np.array
-            parameter2: Union[float, mcs.DispersionType]
-            parameter3: object
+        with pytest.raises(SimulationFailureError, match=msg):
+            @dataclass
+            class SimulationData(SimulationDataclass):
+                parameter1: np.array
+                parameter2: Union[float, mcs.DispersionType]
+                parameter3: object
+                kind: float
 
-        @mcs.simulation_dataclass(no_parallel=True)
-        @dataclass
-        class SimulationData:
-            parameter1: np.array
-            parameter2: Union[float, mcs.DispersionType]
-            parameter3: object
+        with pytest.raises(SimulationFailureError, match=msg):
+            @dataclass
+            class SimulationData(SimulationDataclass):
+                parameter1: np.array
+                parameter2: Union[float, mcs.DispersionType]
+                parameter3: object
+                target_class: float
 
-        @dataclass(frozen=True, eq=False)
-        @mcs.simulation_dataclass(no_parallel=True)
-        class SimulationData:
-            parameter1: np.array
-            parameter2: Union[float, mcs.DispersionType]
-            parameter3: object
-
-    @pytest.mark.xfail
     def test_can_pickle_dataclass(self, tmp_path):
         """
-        Without a major refactoring this test is unfixable. At the same time the following must hold true:
-        1. The decorator @simulation_dataclass has to return the class SimulationData. This is necessary for pickle.dump()
-           to work fine as it cannot pickle functions not defined at the top level of a module, c.f.
-           https://bugs.python.org/issue1121475
-        2. The class SimulationData after the application of the decorator must be a DispersionType.
-
-        Possible solutions:
-        1. The decorator simulation_dataclass has to be replaced with inheritance from something like DataClassDispersions
-        2. Removal of the requirement #2 by modifying the way dispersions are created.
+        A SimulationDataClass must be a non-local variable (i.e. module-scoped variable).
+        NOTE: the current implementation uses nested classes to store all the necessary data for the dispersions:
+        this is probably not ideal as SimulationDataclass does handle two very different things, that is adapting the
+        entry data to be able to disperse as well as storing the dispersed data.
+        A possible solution is to split the data storage and the dispersion generation in
+        two different classes:
         """
 
-        @mcs.simulation_dataclass
-        class SimulationData:
+        class SimulationDataNonLocal(SimulationDataclass):
             parameter1: float
             parameter2: Union[float, mcs.DispersionType]
             parameter3: float
 
-        data = SimulationData(parameter1=1, parameter2=1, parameter3=1)
-        with open(tmp_path / 'float.pickle', 'wb') as f:
-            pickle.dump(data, f)
+        data = test_classes.SimulationData(parameter1=1, parameter2=2, parameter3=3)
+        p_data = pickle.loads(pickle.dumps(data))
+        assert p_data == data
+
+        data_non_local = SimulationDataNonLocal(parameter1=1, parameter2=1, parameter3=1)
+        with pytest.raises(AttributeError,
+                           match="Can't pickle local object "
+                                 "'TestDispersions.test_can_pickle_dataclass.<locals>.SimulationDataNonLocal'"):
+            pickle.dumps(data_non_local)
 
     def test_generate_dispersions_from_dataclass(self):
-        @mcs.simulation_dataclass
-        @dataclass(frozen=True, eq=False)
-        class SimulationData:
+        class SimulationData(SimulationDataclass):
             parameter1: np.array
             parameter2: Union[float, mcs.DispersionType]
             parameter3: object
@@ -223,7 +257,7 @@ class TestDispersions:
         class ObjData:
             pass
 
-        # Missing decorator: no exception is thrown, the data is not dispersed
+        # Missing inheritance: no exception is thrown, the data is not dispersed
         class SimulationData:
             def __init__(self, parameter1, parameter2, parameter3):
                 self.parameter1 = parameter1
@@ -260,8 +294,8 @@ class TestDispersions:
             assert isinstance(dispersed_kwargs['dataclass'].parameter2, mcs.UniformDispersions)
             assert isinstance(dispersed_kwargs['dataclass'].parameter3, ObjData)
 
-        @mcs.simulation_dataclass
-        class SimulationData:
+        # @mcs.simulation_dataclass
+        class SimulationData(SimulationDataclass):
             parameter1: np.array
             parameter2: Union[float, mcs.DispersionType]
             parameter3: object
@@ -292,19 +326,19 @@ class TestDispersions:
             assert isinstance(dispersed_kwargs['dataclass'].parameter3, ObjData)
 
     def test_generate_dispersions_from_nested_dataclass(self):
-        @mcs.simulation_dataclass
-        class NestedSimulationData:
+        # @mcs.simulation_dataclass
+        class NestedSimulationData(SimulationDataclass):
             nested_parameter1: int
             nested_parameter2: Union[float, mcs.DispersionType]
 
-        @mcs.simulation_dataclass
-        class SimulationData:
+        # @mcs.simulation_dataclass
+        class SimulationData(SimulationDataclass):
             parameter1: np.array
             parameter2: Union[float, mcs.DispersionType]
             parameter3: NestedSimulationData
 
         nested_params = NestedSimulationData(nested_parameter1=42,
-                                             nested_parameter2=mcs.UniformDispersions(nominal=20, low=19, high=21))
+                                             nested_parameter2=mcs.UniformDispersions(nominal=20, low=21, high=22))
         params = SimulationData(parameter1=np.array([1]),
                                 parameter2=mcs.UniformDispersions(nominal=1.0, low=0.9, high=1.1),
                                 parameter3=nested_params)
@@ -349,7 +383,7 @@ class TestDispersions:
                    hasattr(dispersed_kwargs['dataclass'].parameter3, 'nested_parameter2'), \
                 'Probably it is not a NestedSimulationData'
             assert dispersed_kwargs['dataclass'].parameter3.nested_parameter1 == 42
-            assert 19 < dispersed_kwargs['dataclass'].parameter3.nested_parameter2 < 21
+            assert 21 < dispersed_kwargs['dataclass'].parameter3.nested_parameter2 < 22
 
 
 @pytest.fixture
@@ -629,22 +663,12 @@ class TestSimulations:
         # plt.plot(result['time'], result['position'])
         # plt.show()
 
-    @pytest.mark.xfail
     def test_complex_simulation_parallel(self, mcs_complex):
         """
         To fix this test, fix first test_can_pickle_dataclass which is a simpler version of the problem here.
         """
 
-        @mcs.simulation_dataclass
-        class PhysicalData:
-            mass1: float
-            mass2: float
-            elastic_constant1: float
-            elastic_constant2: float
-            damper_constant1: float
-            damper_constant2: float
-
-        physical_data = PhysicalData(
+        physical_data = test_classes.PhysicalData(
             mass1=mcs.UniformDispersions(nominal=1, low=0.9, high=1.1),
             mass2=mcs.UniformDispersions(nominal=3, low=2.9, high=3.1),
             elastic_constant1=mcs.UniformDispersions(nominal=3, low=2.9, high=3.1),
@@ -678,7 +702,6 @@ class TestSimulations:
         assert len(results) == (mcs_complex.n_simulations + 1) * 50, \
             'Each simulation should contain 50 instants as a result'
 
-    @pytest.mark.xfail
     def test_simple_simulation_parallel(self, mcs_pendulum, n_sim, length_pendulum, low_len, high_len):
         mcs_pendulum.parallel = True
         results = mcs_pendulum.compute(length=length_pendulum, g=9.81)
@@ -686,7 +709,6 @@ class TestSimulations:
         assert np.all(period(low_len).values < results['T'].values), 'At least one of the results is wrong'
         assert np.all(results['T'].values < period(high_len).values), 'At least one of the results is wrong'
 
-    @pytest.mark.xfail
     def test_ivp_model_parallel(self, mcs_ivp_simple_model):
         mass = mcs.UniformDispersions(low=0.8, high=1.2, nominal=1)
         elastic_constant = mcs.NormalDispersions(nominal=3, loc=3, scale=0.2)

@@ -12,6 +12,7 @@ import seaborn as sns
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.offsetbox import AnchoredText
+
 if mpl.__version__ == '3.0.2':
     # This import registers the 3D projection, but is otherwise unused.
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
@@ -185,7 +186,7 @@ class MonteCarloVisualizer:
     replace_pairs = [('theta', r'\vartheta'), ('phi', r'\varphi'), ('psi', r'\psi'), ('delta', r'\Delta'),
                      ('time', r't'), ('altitude', r'h'),
                      ('vx_r', r'v_{x_r}'), ('vy_r', r'v_{y_r}'), ('vz_r', r'v_{z_r}'),
-                     ('vx_b', r'v_{x_b}'), ('vy_b', r'v_{y_b}'), ('vz_b', r'v_{z_b}'),]
+                     ('vx_b', r'v_{x_b}'), ('vy_b', r'v_{y_b}'), ('vz_b', r'v_{z_b}'), ]
 
     def __infer_label(self, src, factor, delta=False):
         par = src.replace('$', '').lower()
@@ -247,7 +248,8 @@ class MonteCarloVisualizer:
         return ax
 
     @FigureCreator
-    def plotsims(self, y, x='Time', data=None, data_ref=None, ax=None, title=None, xfac=1, yfac=1, yyfac=1, xlabel='infer',
+    def plotsims(self, y, x='Time', data=None, data_ref=None, ax=None, title=None, xfac=1, yfac=1, yyfac=1,
+                 xlabel='infer',
                  ylabel='infer', yylabel='infer', sim_filter=None, fill_between=False, plot_deltas=True):
         """
         :param y: string with the name of the column to plot on y axis or data vector (numpy.array, pandas.Series etc.)

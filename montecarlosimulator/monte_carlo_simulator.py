@@ -103,7 +103,6 @@ class MonteCarloSimulator:
         return pd.concat([dispersed_results, nominal_results])
 
     def _compute_parallel(self, simulation_it):
-        raise NotImplementedError('The tests for the parallel execution are failing!')
         batches_it = make_chunks(simulation_it, math.ceil(self.n_simulations / self.n_batches))
 
         with ProcessPoolExecutor() as executor:
@@ -117,6 +116,10 @@ class MonteCarloSimulator:
             except SimulationFailureError:
                 print('Something went horribly wrong: ' + traceback.format_exc())
                 raise
+
+        if not len(results):
+            raise SimulationFailureError('No results were computed.')
+
         return pd.concat(results)
 
     def _compute_sequential(self, simulation_it):

@@ -1,8 +1,8 @@
 import numpy as np
 
 from collections import namedtuple
-from dataclasses import dataclass, field
-from typing import Literal, Iterator
+from dataclasses import dataclass
+from typing import Literal, Iterator, Any, Tuple, Dict
 
 InitialConditions = namedtuple('InitialConditions', 't0, y0')
 
@@ -22,7 +22,7 @@ class DispersionType:
         super().__init_subclass__(**kwargs)
 
     nominal: object
-    kind: str  # = field(init=False, default='')
+    kind: str
 
 
 @dataclass
@@ -59,5 +59,5 @@ class IteratorDispersions(DispersionType):
 
 @dataclass
 class SimulationEntryData:
-    args: list
-    kwargs: dict
+    args: Tuple[Any, ...]
+    kwargs: Dict[str, Any]

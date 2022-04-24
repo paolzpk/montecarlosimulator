@@ -38,6 +38,8 @@ class MonteCarloSimulator:
         :param n_simulations: number of dispersed simulations (NOTE: a nominal simulation will also be run, hence the
         actual number of simulations is n_simulations+1)
         :param stop_on_failure: stop if any of the simulations fails (an Exception is raised).
+        :param n_batches: number of batches used to run the parallel simulation. This parameter has no effect if
+        parallel is set to False.
         """
         self.n_simulations = n_simulations
         self.model = model
@@ -84,7 +86,7 @@ class MonteCarloSimulator:
         return self._n_batches
 
     @n_batches.setter
-    def n_batches(self, n: Union[int, Literal['auto']]):
+    def n_batches(self, n):
         if n is None or n == 'auto':
             n = MonteCarloSimulator.DEFAULT_N_BATCHES
         self._n_batches = n

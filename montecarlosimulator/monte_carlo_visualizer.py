@@ -7,6 +7,7 @@ TODO read the units from the input data instead of trying to guess
 TODO find a better way to change units of measure (is there a lib to do so? probably yes)
 TODO add at least one test (using pytest ideally)
 """
+from collections.abc import Sequence
 
 import seaborn as sns
 import matplotlib as mpl
@@ -24,7 +25,7 @@ import numpy as np
 
 from functools import partial, reduce
 from functools import update_wrapper
-from collections import OrderedDict, Sequence
+from collections import OrderedDict
 from pathlib import Path
 from numbers import Number
 
@@ -96,7 +97,7 @@ class MonteCarloVisualizer:
     BUNDLE_LINE_NUMBER_LIMIT = 1000
     NOMINAL = -1
 
-    def __init__(self, sims_stats, sims, save_dir, data_ref=None, stats_ref=None, ci=0.95, bundle_size=30,
+    def __init__(self, save_dir, sims, /, sims_stats=None, *, data_ref=None, stats_ref=None, ci=0.95, bundle_size=30,
                  n_sims=None, experimental=False):
         self.sims_stats = sims_stats
         self.sims = sims
@@ -105,7 +106,8 @@ class MonteCarloVisualizer:
 
         self.sim_number = n_sims if n_sims is not None else len(sims['sim_name'].unique())
 
-        self.data_ref = self.data_ref.loc[:, ~self.data_ref.columns.duplicated()]
+        if self.data_ref is not None:
+            self.data_ref = self.data_ref.loc[:, ~self.data_ref.columns.duplicated()]
 
         self.save_dir = save_dir
 
@@ -248,7 +250,7 @@ class MonteCarloVisualizer:
         return ax
 
     @FigureCreator
-    def plotsims(self, y, x='Time', data=None, data_ref=None, ax=None, title=None, xfac=1, yfac=1, yyfac=1,
+    def plotsims(self, y, x='time', data=None, data_ref=None, ax=None, title=None, xfac=1, yfac=1, yyfac=1,
                  xlabel='infer',
                  ylabel='infer', yylabel='infer', sim_filter=None, fill_between=False, plot_deltas=True):
         """
@@ -276,7 +278,7 @@ class MonteCarloVisualizer:
         :return: list of axes used to plot
         """
         if sim_filter is None:
-            sim_filter = [()]
+            sim_filter = []
         if data is None:
             data = self.sims
         if data_ref is None:

@@ -1,12 +1,11 @@
 import montecarlosimulator as mcs
+from montecarlosimulator.test import test_classes
 
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
 
 import pytest
-
-from test import test_classes
 
 
 @pytest.fixture
@@ -131,12 +130,12 @@ def mcs_ivp_simple_model():
     return mcs.MonteCarloSimulator(model=mass_spring_damper, n_simulations=20, stop_on_failure=False)
 
 
-@pytest.fixture
+@pytest.fixture(scope='class')
 def mcs_complex():
     return mcs.MonteCarloSimulator(coupled_mass_spring_damper, n_simulations=20, stop_on_failure=False)
 
 
-@pytest.fixture
+@pytest.fixture(scope='class')
 def mcs_complex_datadict():
     physical_data = test_classes.PhysicalData(
                 mass1=mcs.UniformDispersions(nominal=1, low=0.9, high=1.1),
@@ -162,3 +161,8 @@ def mcs_complex_datadict():
         physical_data=physical_data,
         forces=forces,
     )
+
+
+@pytest.fixture(scope='class')
+def mcs_complex_sim_results(mcs_complex, mcs_complex_datadict):
+    return mcs_complex.compute(**mcs_complex_datadict)

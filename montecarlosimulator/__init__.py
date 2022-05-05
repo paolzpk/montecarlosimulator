@@ -1,6 +1,7 @@
 from .Exceptions import SimulationFailureError
 from .dispersions import get_dispersions_generator, simulation_dataclass
 from .monte_carlo_simulator import MonteCarloSimulator
+from .monte_carlo_visualizer import MonteCarloVisualizer
 from .data_structures import UniformDispersions, SimulationEntryData, \
     ExperimentalDistributionDispersions, NormalDispersions, DispersionType
 

@@ -166,3 +166,17 @@ def mcs_complex_datadict():
 @pytest.fixture(scope='class')
 def mcs_complex_sim_results(mcs_complex, mcs_complex_datadict):
     return mcs_complex.compute(**mcs_complex_datadict)
+
+
+@pytest.fixture(scope='class')
+def mcs_complex_sim_stats_results(mcs_complex_sim_results):
+    data = {col: [] for col in mcs_complex_sim_results.columns}
+    for sim in mcs_complex_sim_results['sim_name'].unique():
+        sim_data = mcs_complex_sim_results[mcs_complex_sim_results['sim_name'] == sim]
+        for col in mcs_complex_sim_results.columns:
+            try:
+                data[col].append(sim_data[col].max())
+            except TypeError:
+                pass
+    del data['entry_data']
+    return pd.DataFrame(data)

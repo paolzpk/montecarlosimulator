@@ -8,11 +8,14 @@ TODO find a better way to change units of measure (is there a lib to do so? prob
 TODO add at least one test (using pytest ideally)
 """
 from collections.abc import Sequence
+from typing import NamedTuple, Callable, Iterable
 
 import seaborn as sns
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.offsetbox import AnchoredText
+
+from monte_carlo_simulator import MonteCarloSimulator
 
 if mpl.__version__ == '3.0.2':
     # This import registers the 3D projection, but is otherwise unused.
@@ -97,14 +100,12 @@ class MonteCarloVisualizer:
     BUNDLE_LINE_NUMBER_LIMIT = 1000
     NOMINAL = -1
 
-    def __init__(self, save_dir, sims, /, sims_stats=None, *, data_ref=None, stats_ref=None, ci=0.95, bundle_size=30,
-                 n_sims=None, experimental=False):
-        self.sims_stats = sims_stats
-        self.sims = sims
+    def __init__(self, save_dir, /, sim_results=None, sim_statistics=None, *, data_ref=None, stats_ref=None, ci=0.95,
+                 bundle_size=30, experimental=False):
+        self.sims_stats = sim_statistics
+        self.sims = sim_results
         self.data_ref = data_ref
         self.stats_ref = stats_ref
-
-        self.sim_number = n_sims if n_sims is not None else len(sims['sim_name'].unique())
 
         if self.data_ref is not None:
             self.data_ref = self.data_ref.loc[:, ~self.data_ref.columns.duplicated()]
@@ -222,21 +223,14 @@ class MonteCarloVisualizer:
     @FigureCreator
     def plot3D(self, x, y, z, data=None, data_ref=None, ax=None, title=None, xfac=1, yfac=1, zfac=1, xlabel='infer',
                ylabel='infer', zlabel='infer', sim_filter=None, view=None):
-        if sim_filter is None:
-            sim_filter = [()]
-        if data is None:
-            data = self.sims
-        if data_ref is None:
-            data_ref = self.data_ref
-        else:
-            data_ref.columns = [x, y]
+        data, data_ref, sim_filter = self.__prepare_data(data, data_ref, sim_filter, x, y)
+        filtered_data = self.filter_data(data, sim_filter, [x, y, z])
+
         if ax is None:
             ax = plt.axes(projection='3d')
 
-        filtered_data = self.filter_data(data, sim_filter, [x, y, z])
-
         for i_sim in np.append(data['sim_name'].unique(), MonteCarloVisualizer.NOMINAL):
-            label, palette_n = self.plot_details_handler(i_sim)
+            label, palette_n = self.__plot_details_handler(i_sim)
             _data = filtered_data[(filtered_data['sim_name'] == i_sim)]
             ax.plot3D(_data[x].values * xfac, _data[y].values * yfac, _data[z].values * zfac,
                       color=sns.color_palette()[palette_n],
@@ -277,18 +271,11 @@ class MonteCarloVisualizer:
         :param plot_deltas:
         :return: list of axes used to plot
         """
-        if sim_filter is None:
-            sim_filter = []
-        if data is None:
-            data = self.sims
-        if data_ref is None:
-            data_ref = self.data_ref
-        else:
-            data_ref.columns = [x, y]
+        data, data_ref, sim_filter = self.__prepare_data(data, data_ref, sim_filter, x, y)
+        filtered_data = self.filter_data(data, sim_filter, [x, y])
+
         if ax is None:
             ax = plt.axes()
-
-        filtered_data = self.filter_data(data, sim_filter, [x, y])
 
         if not fill_between:
             # lines = []
@@ -315,12 +302,12 @@ class MonteCarloVisualizer:
 
             # Append nominal simulation as last to plot to make sure it is plotted on top of everything else
             for _, i_sim in zip(range(0, MonteCarloVisualizer.BUNDLE_LINE_NUMBER_LIMIT), data['sim_name'].unique()):
-                label, palette_n = self.plot_details_handler(i_sim)
+                label, palette_n = self.__plot_details_handler(i_sim)
                 _data = filtered_data[(filtered_data['sim_name'] == i_sim)]
                 ax.plot(_data[x].values * xfac, _data[y].values * yfac, color=sns.color_palette()[palette_n],
                         label=label, alpha=0.8)
             else:
-                label, palette_n = self.plot_details_handler(MonteCarloVisualizer.NOMINAL)
+                label, palette_n = self.__plot_details_handler(MonteCarloVisualizer.NOMINAL)
                 _data = filtered_data[(filtered_data['sim_name'] == MonteCarloVisualizer.NOMINAL)]
                 if len(_data[x].values) > 0:
                     ax.plot(_data[x].values * xfac, _data[y].values * yfac, color=sns.color_palette()[palette_n],
@@ -365,7 +352,7 @@ class MonteCarloVisualizer:
             for i_sim in np.append(data['sim_name'].unique(), MonteCarloVisualizer.NOMINAL):
                 y_data = filtered_data[filtered_data['sim_name'] == i_sim][y]
                 data_size = min(data_ref_len, y_data.size)
-                label, palette_n = self.plot_details_handler(i_sim)
+                label, palette_n = self.__plot_details_handler(i_sim)
 
                 yyax.plot(data_ref[x][:data_size].values,
                           (data_ref[y][:data_size].values - y_data[:data_size].values) * yyfac,
@@ -389,8 +376,26 @@ class MonteCarloVisualizer:
 
         return [ax, yyax]
 
+    def __prepare_data(self, data, data_ref, sim_filter, x, y):
+        if sim_filter is None:
+            sim_filter = []
+        if data is None:
+            if self.sims is None:
+                raise ValueError('No simulations to visualize')
+            data = self.sims
+        if data_ref is None:
+            data_ref = self.data_ref
+        else:
+            data_ref.columns = [x, y]
+        return data, data_ref, sim_filter
+
+    class MCSFilterData(NamedTuple):
+        what: str
+        on_value: object
+        comparison: Callable = None
+
     @staticmethod
-    def filter_data(data, sim_filter, cols=None):
+    def filter_data(data, sim_filter: Iterable[MCSFilterData], cols=None):
         if cols is None or not isinstance(cols, list):
             ValueError(
                 "Argument 'cols' is mandatory and should be a list of strings with the names of the columns to select")
@@ -399,6 +404,7 @@ class MonteCarloVisualizer:
         if not sim_filter:
             return data[cols]
 
+        # TODO implement here filtering not based only on equality
         _filter = reduce(lambda x, y: x & y, [data[column] == value for column, value in sim_filter])
         filtered_data = data[_filter][cols]
         filtered_data.reindex()
@@ -411,7 +417,7 @@ class MonteCarloVisualizer:
         ax.legend(by_label.values(), by_label.keys(), **kwarg)
 
     @staticmethod
-    def plot_details_handler(i_sim):
+    def __plot_details_handler(i_sim):
         palette_n = 1
         if i_sim != MonteCarloVisualizer.NOMINAL:
             label = 'Monte Carlo'
@@ -424,24 +430,21 @@ class MonteCarloVisualizer:
 
     @FigureCreator
     def distplot(self, parameter, data=None, factor=1, title=None, xlabel='infer', legend_labels_override=None,
-                 hue=None, kde=True, data_ref=None, ax=None, **kwargs):
-        # """
-        # :param hue: string, list of strings or list of tuples containing the different datasets to be plotted.
-        #             Example:
-        #             - hue='Type' plots different distributions for all data[hue].unique()
-        #             - hue=[('Type', ['Type1', 'Type2'])] plots different distribution for
-        #             data[data[hue[0][0] == data[hue[0][1]], i.e. data[data['Type'] == ['Type1', 'Type2'].
-        #             -
-        #
-        # """
-        if data is None:
-            data = self.sims_stats
+                 hue='Type', kde=True, data_ref=None, ax=None, ref_pt=None, **kwargs):
+        """
+        Plots the histogram and kde estimation of the given parameter.
+        :param hue: string, list of strings or list of tuples containing the different datasets to be plotted.
+                    Example:
+                    - hue='Type' plots different distributions for all data[hue].unique()
+                    - hue=[('Type', ['Type1', 'Type2'])] plots different distribution for
+                    data[data[hue[0][0] == data[hue[0][1]], i.e. data[data['Type'] == ['Type1', 'Type2'].
+                    -
 
-        if hue is None and 'Type' in data.columns:
-            hue = 'Type'
+        """
+        data, hue = self.__prepare_stats_data(data, hue)
 
         # Copying only the necessary columns. Copying because the original df must not be modified
-        necessary_columns = [parameter] if hue is None else [parameter, hue]
+        necessary_columns = [parameter, 'sim_name'] if hue is None else [parameter, hue, 'sim_name']
         _data = data[necessary_columns].dropna().reset_index(drop=True).copy()
         _data.loc[:, parameter] = _data.loc[:, parameter] * factor
 
@@ -462,23 +465,11 @@ class MonteCarloVisualizer:
         stats_strings = [f"$\mu$ = ${avg:.2f}$ ; $\sigma$ = ${stddev:.2f}${' (' + dye + ')' if hue is not None else ''}"
                          for (dye, avg), stddev in zip(averages.items(), stddevs.values())]
 
-        self.__add_AnchoredText(ax, stats_strings)
+        self.__add_anchored_text(ax, stats_strings)
 
-        if isinstance(data_ref, Number):
-            _data_ref = (data_ref, 0)
-        elif isinstance(data_ref, Sequence) or isinstance(data_ref, pd.DataFrame) or self.stats_ref is not None:
-            if data_ref is None:
-                data_ref = self.stats_ref
-            try:
-                _data_ref = (data_ref[parameter], 0)
-            except Exception:
-                _data_ref = None
-        else:
-            _data_ref = data_ref
-        if _data_ref is not None and len(_data_ref) == 2 and _data_ref[0] is not []:
-            x_ref, y_ref = _data_ref
-            ax.plot(x_ref * factor, y_ref, 'rv', markersize=12, label='Reference')
-            # ax.legend()  # TODO adding this removes the legend for the hue, must find a way to add the legend for the ref pt
+        ref_pt = self.__get_reference_point(ref_pt, self.stats_ref, necessary_columns)
+        nominal_pt = self.__get_nominal_point(_data)
+        self.__plot_reference_and_nominal_pt(ax, (nominal_pt, 0), (ref_pt, 0), marker='v', xfac=factor)
 
         if title is not None:
             ax.set_title(title, fontsize=18)
@@ -489,13 +480,15 @@ class MonteCarloVisualizer:
             xlabel = self.__infer_label(parameter, factor)
         ax.set_xlabel(xlabel, fontsize=18)
 
+        # TODO adding this removes the legend for the hue, must find a way to add the legend for the ref pt
+        ax.legend(loc='best')
         if legend_labels_override is not None:
             ax.legend(labels=legend_labels_override)
 
         return ax
 
     @staticmethod
-    def __add_AnchoredText(ax, stats_strings, loc='upper left'):
+    def __add_anchored_text(ax, stats_strings, loc='upper left'):
         stats_string = '\n'.join(stats_strings)
         at = AnchoredText(stats_string, frameon=True, prop=dict(size=14), loc=loc)
         at.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
@@ -522,13 +515,9 @@ class MonteCarloVisualizer:
         :param loc_annotation: position of the annotation with the statistics (matplotlib style)
         :return: axis used to plot
         """
-        if data is None:
-            data = self.sims_stats
+        data, hue = self.__prepare_stats_data(data, hue)
 
-        if hue is None and 'Type' in data.columns:
-            hue = 'Type'
-
-        necessary_columns = [x, y] if hue is None else [x, y, hue]
+        necessary_columns = [x, y, 'sim_name'] if hue is None else [x, y, hue, 'sim_name']
         _data = data[necessary_columns].dropna().reset_index(drop=True).copy()
         _data[x] = _data[x] * xfac
         _data[y] = _data[y] * yfac
@@ -540,32 +529,14 @@ class MonteCarloVisualizer:
                 for typ in _data[hue].unique():
                     __data = _data[_data[hue] == typ]
                     ax = sns.kdeplot(data=__data[x].dropna(), data2=__data[y].dropna(), label='_nolegend_')
-            else:  # sns.__version__ == '0.11.0'
+            else:  # sns.__version__ >= '0.9.0'
                 ax = sns.kdeplot(data=_data, x=x, y=y, ax=ax, hue=hue, **kwargs, label='_nolegend_') if kdeplot else ax
         except np.linalg.LinAlgError as ex:
             print(str(ex) + f'\nCannot plot kde for {x} and {y}. Something went wrong in the calculations! Skipping!')
 
-        # Trying to find the reference point:
-        # First look in the ref_pt parameter
-        # Second look in self.stats_ref
-        # Third look in self.data_ref (NOTE: this method falls back to using the last value of the time series and might lead to incoherent results)
-        # Fourth no suitable reference point could be found, do not plot the reference.
-        if ref_pt is None:
-            if self.stats_ref is not None and (x in self.stats_ref.columns and y in self.stats_ref.columns):
-                ref_pt = (self.stats_ref[x].values, self.stats_ref[y].values)
-
-            if self.data_ref is not None and (
-                    x in self.data_ref.columns and y in self.data_ref.columns):
-                try:
-                    ref_pt = tuple(
-                        self.data_ref[self.data_ref['Time'] == self.data_ref['Time'].max()][[x, y]].values[0])
-                    ref_pt = (ref_pt[0] * xfac, ref_pt[1] * yfac)
-                except Exception as ex:
-                    print()
-                    raise type(ex)('An error occurred, try again specifying the refence point rf_pt. ' + str(ex))
-
-        if ref_pt is not None:
-            ax.plot(ref_pt[0] * xfac, ref_pt[1] * yfac, ms=10, label='Reference', marker='P', color='r')
+        ref_pt = self.__get_reference_point(ref_pt, self.stats_ref, necessary_columns)
+        nominal_pt = self.__get_nominal_point(_data)
+        self.__plot_reference_and_nominal_pt(ax, nominal_pt, ref_pt, marker='P', xfac=xfac, yfac=yfac)
 
         averages, stddevs = self.__get_stats(_data, hue, [x, y])
 
@@ -573,16 +544,69 @@ class MonteCarloVisualizer:
                          f"$\mu_y$ = ${avg[y]:.2f}$ ; $\sigma_y$ = ${stddev[y]:.2f}${' (' + dye + ')' if hue is not None else ''}"
                          for (dye, avg), stddev in zip(averages.items(), stddevs.values())]
 
-        self.__add_AnchoredText(ax, stats_strings, loc=loc_annotation)
+        self.__add_anchored_text(ax, stats_strings, loc=loc_annotation)
 
         self.__handle_label_and_title(ax, title, x, xfac, xlabel, y, yfac, ylabel)
 
         ax.legend(loc='best')
-
         if legend_labels_override is not None:
             ax.legend(labels=legend_labels_override)
 
         return ax
+
+    @staticmethod
+    def __plot_reference_and_nominal_pt(ax, nominal_pt, ref_pt, /, *, marker, xfac, yfac=1):
+        if ref_pt == nominal_pt:
+            ax.plot(ref_pt[0] * xfac, ref_pt[1] * yfac, ms=10, label='Reference/Nominal', marker=marker, color='r')
+            ref_pt = None
+            nominal_pt = None
+        if ref_pt is not None and all(val is not None for val in ref_pt):
+            ax.plot(ref_pt[0] * xfac, ref_pt[1] * yfac, ms=10, label='Reference', marker=marker, color='r')
+        if nominal_pt is not None and all(val is not None for val in nominal_pt):
+            ax.plot(nominal_pt[0] * xfac, nominal_pt[1] * yfac, ms=10, label='Nominal', marker=marker, color='b')
+
+    @staticmethod
+    def __get_reference_point(ref_pt, data, cols):
+        # Trying to find the reference point:
+        # - If ref_pt is provided, just return it
+        # - else look in self.stats_ref
+        # - If no suitable reference point could be found, return None
+        # TODO add the possibility to calculate statistics on the fly (e.g. if self.statistics_calculator is not None..)
+        if ref_pt is not None:
+            return ref_pt
+
+        try:
+            if data is None:
+                return None
+            if 'sim_name' in cols:
+                cols.remove('sim_name')
+            assert len(data[cols].index) == 1, 'Reference data must have just one possible value (per parameter)'
+            ref_pt = tuple(data[cols].iloc[0])
+            return ref_pt[0] if len(ref_pt) == 1 else ref_pt
+        except IndexError:
+            return None
+        return None
+
+    @staticmethod
+    def __get_nominal_point(data):
+        try:
+            nominal_data = data[data['sim_name'] == MonteCarloSimulator.NOMINAL].iloc[0]
+            del nominal_data['sim_name']
+            nominal_pt = tuple(nominal_data)
+            return nominal_pt[0] if len(nominal_pt) == 1 else nominal_pt
+        except IndexError:
+            return None
+
+    def __prepare_stats_data(self, data, hue):
+        if data is None:
+            if self.sims_stats is None:
+                raise ValueError('No statistics to visualize')
+            data = self.sims_stats
+        if hue is None:
+            hue = 'Type'
+        if hue not in data.columns:
+            hue = None
+        return data, hue
 
     @staticmethod
     def __get_stats(_data, hue, parameters):

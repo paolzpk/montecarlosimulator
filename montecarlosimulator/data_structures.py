@@ -1,7 +1,7 @@
 import numpy as np
 
 from collections import namedtuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Iterator, Any, Tuple, Dict
 
 InitialConditions = namedtuple('InitialConditions', 't0, y0')
@@ -41,7 +41,7 @@ class UniformDispersions(DispersionType):
 
 @dataclass
 class ExperimentalDistributionDispersions(DispersionType):
-    population: np.array = np.array(())
+    population: np.array = field(default_factory=np.array(()))
     kind: Literal['resampling'] = 'resampling'
 
 

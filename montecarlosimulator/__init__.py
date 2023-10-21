@@ -6,4 +6,4 @@ from .data_structures import UniformDispersions, SimulationEntryData, \
     ExperimentalDistributionDispersions, NormalDispersions, DispersionType
 
 # Define the montecarlosimulator version
-__version__ = '0.0.1'
+__version__ = '0.0.2'

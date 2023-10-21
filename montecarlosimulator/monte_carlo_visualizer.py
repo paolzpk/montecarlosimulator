@@ -15,7 +15,7 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.offsetbox import AnchoredText
 
-from monte_carlo_simulator import MonteCarloSimulator
+from .monte_carlo_simulator import MonteCarloSimulator
 
 if mpl.__version__ == '3.0.2':
     # This import registers the 3D projection, but is otherwise unused.
